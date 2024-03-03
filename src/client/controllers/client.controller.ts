@@ -1,5 +1,5 @@
 import { Controller, Delay, EventListener, UIListener } from '@armoury/fivem-framework';
-import { AuthenticationDTO } from '@shared/models/authentication.model';
+import { type IAuthenticationDTO } from '@shared/models/authentication.model';
 
 @Controller()
 export class Client {
@@ -64,7 +64,7 @@ export class Client {
   }
 
   @UIListener({ eventName: 'authenticate' })
-  public onNuiAuthenticate(data: AuthenticationDTO) {
+  public onNuiAuthenticate(data: IAuthenticationDTO) {
     Cfx.TriggerServerEvent(`${Cfx.Server.GetCurrentResourceName()}:authenticate`, data);
   }
 

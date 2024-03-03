@@ -7,7 +7,7 @@ import {
   type IAccount,
   ServerVirtualWorldsService,
 } from '@armoury/fivem-framework';
-import { AuthenticationDTO } from '@shared/models/authentication.model';
+import { type IAuthenticationDTO } from '@shared/models/authentication.model';
 import { PlayerInfoType } from '@shared/models/player-info.type';
 import { Player, PlayerBase, PlayerMonitored } from '@shared/models/player.model';
 import { whirlpool } from 'hash-wasm';
@@ -22,7 +22,7 @@ export class Server {
   ) {}
 
   @EventListener({ eventName: `${Cfx.Server.GetCurrentResourceName()}:authenticate` })
-  public async onAuthenticateBegin(data: AuthenticationDTO, _source?: number): Promise<void> {
+  public async onAuthenticateBegin(data: IAuthenticationDTO, _source?: number): Promise<void> {
     const playerId: number = _source ?? Cfx.source;
     // prettier-ignore
     const hashedPassword: string = await whirlpool(this.getHashPasswordWithSalt(data.password, data.email));
