@@ -6,10 +6,10 @@ import {
   ServerSessionService,
   type IAccount,
   ServerVirtualWorldsService,
+  StringFormatter,
 } from '@armoury/fivem-framework';
 import { type IAuthenticationDTO } from '@shared/models/authentication.model';
-import { PlayerInfoType } from '@shared/models/player-info.type';
-import { Player, PlayerBase, PlayerMonitored } from '@shared/models/player.model';
+import { Player } from '@shared/models/player.model';
 import { whirlpool } from 'hash-wasm';
 
 @Controller()
@@ -19,11 +19,14 @@ export class Server {
   public constructor(
     @Inject(ServerSessionService) private readonly _session: ServerSessionService,
     @Inject(ServerVirtualWorldsService) private readonly _virtualWorlds: ServerVirtualWorldsService
-  ) {}
+  ) {
+    console.log(this._session['_sessionItems']);
+  }
 
   @EventListener({ eventName: `${Cfx.Server.GetCurrentResourceName()}:authenticate` })
   public async onAuthenticateBegin(data: IAuthenticationDTO, _source?: number): Promise<void> {
     const playerId: number = _source ?? Cfx.source;
+
     // prettier-ignore
     const hashedPassword: string = await whirlpool(this.getHashPasswordWithSalt(data.password, data.email));
     if (!data.isAuthenticating) {
@@ -50,7 +53,14 @@ export class Server {
     } else {
       const result: IAccount = await this._session.login(playerId, data.email, hashedPassword);
       if (result) {
-        this.authenticatePlayer(playerId, result);
+        const characters: Player[] = await this._session.fetch(playerId, result.id);
+        if (characters) {
+          Cfx.TriggerClientEvent(`${Cfx.Server.GetCurrentResourceName()}:account-success-client`, playerId);
+          Cfx.emit(`${Cfx.Server.GetCurrentResourceName()}:account-success`, playerId, characters);
+        } else {
+          // prettier-ignore
+          Cfx.TriggerClientEvent(`${Cfx.Server.GetCurrentResourceName()}:account-login-error`, playerId, 'Authentication failed - unknown error occured.');
+        }
       } else {
         // prettier-ignore
         Cfx.TriggerClientEvent('authentication:login-error', playerId, 'Authentication failed - incorrect email and password combination.');
@@ -58,67 +68,6 @@ export class Server {
     }
   }
 
-  // @Export()
-  // public setPlayerInfo(
-  //   source: number,
-  //   stat: string,
-  //   _value: PlayerInfoType,
-  //   ignoreSQLCommand: boolean = true,
-  //   ...additionalValues: { stat: string; _value: PlayerInfoType }[]
-  // ): void {
-  //   let value = _value;
-  //
-  //   if (Array.isArray(_value) || typeof _value === 'object') {
-  //     value = JSON.stringify(_value);
-  //   }
-  //
-  //   if (stat === 'cash') {
-  //     global.exports['armoury-overlay'].updateItem(source, {
-  //       id: stat,
-  //       icon: 'attach_money',
-  //       value:
-  //         '$' +
-  //         (Math.abs(<number>value) < 999999 ? numberWithCommas(<number>value) : toThousandsString(<number>value, 2)),
-  //     });
-  //
-  //     const previousValue: number = this.getPlayerInfo(source, 'cash');
-  //     const difference: number = Number(value) - Number(previousValue || 0);
-  //     if (difference !== 0 && previousValue !== 0) {
-  //       global.exports['armoury-overlay'].showMoneyGainOverlay(source, difference);
-  //     }
-  //   }
-  //
-  //   if (stat === 'id') {
-  //     if (<number>value > this.maxIdOnServer) {
-  //       this.maxIdOnServer = <number>value;
-  //     }
-  //
-  //     global.exports['armoury-overlay'].updateItem(source, {
-  //       id: stat,
-  //       icon: 'person',
-  //       value: value.toString().padStart(Math.max(6, this.maxIdOnServer.toString().length), '0'),
-  //     });
-  //   }
-  //
-  //   Cfx.Server.SetConvarReplicated(`${source}_PI_${stat}`, value.toString());
-  //
-  //   if (!ignoreSQLCommand && this.cachedPlayerProperties.includes(stat)) {
-  //     let statsString: string = `${stat} = ?`;
-  //     additionalValues.forEach((additionalValue) => {
-  //       statsString += `, ${additionalValue.stat} = ?`;
-  //     });
-  //
-  //     global.exports['oxmysql'].update_async(`UPDATE \`players\` SET ${statsString} WHERE id = ?`, [
-  //       value,
-  //       ...additionalValues.map((additionalValue) =>
-  //         Array.isArray(additionalValue._value) || typeof additionalValue._value === 'object'
-  //           ? JSON.stringify(additionalValue._value)
-  //           : additionalValue._value
-  //       ),
-  //       this.getPlayerInfo(source, 'id'),
-  //     ]);
-  //   }
-  // }
   //
   // @Export()
   // public async getOfflinePlayerInfo(
@@ -134,26 +83,6 @@ export class Server {
   // }
 
   //@Export()
-  //public getPlayerInfo<T extends PlayerInfoType>(source: number, stat: string): T {
-  //  let value: PlayerInfoType = Cfx.Server.GetConvar(`${source}_PI_${stat}`, '-1');
-  //
-  //  if (isJSON(value.toString())) {
-  //    value = JSON.parse(value, function (_k, v) {
-  //      return typeof v === 'object' || isNaN(v) ? v : Number(v);
-  //    });
-  //  }
-  //
-  //  if (stat === 'hoursPlayed') {
-  //    const computedHoursPlayed: number = Number(value) + this.computeHoursPlayed(source);
-  //    this.setPlayerInfo(source, stat, computedHoursPlayed);
-  //
-  //    return <T>computedHoursPlayed;
-  //  }
-  //
-  //  return <T>value;
-  //}
-  //
-  //@Export()
   //public getAuthenticatedPlayers(withData?: boolean) {
   //  if (withData) {
   //    return Array.from(this.authenticatedPlayers.keys()).reduce(
@@ -168,37 +97,6 @@ export class Server {
   //  return Array.from(this.authenticatedPlayers.keys());
   //}
 
-  // private computeHoursPlayed(source: number): number {
-  //   let computedHoursPlayed: number = 0;
-  //   if (this.authenticatedPlayers.has(source)) {
-  //     computedHoursPlayed =
-  //       Math.floor(
-  //         (Math.abs(this.authenticatedPlayers.get(source).lastHoursPlayedCheck.getTime() - new Date().getTime()) /
-  //           (1000 * 60)) %
-  //           60
-  //       ) * 0.017;
-  //
-  //     this.authenticatedPlayers.set(source, {
-  //       ...this.authenticatedPlayers.get(source),
-  //       lastHoursPlayedCheck: new Date(),
-  //     });
-  //   }
-  //
-  //   return computedHoursPlayed;
-  // }
-
-  private async authenticatePlayer(target: number, account: IAccount): Promise<void> {
-    const characters: Player[] = await this._session.fetch(target, account.id);
-
-    if (characters) {
-      Cfx.TriggerClientEvent(`${Cfx.Server.GetCurrentResourceName()}:account-success-client`, target);
-      Cfx.emit(`${Cfx.Server.GetCurrentResourceName()}:account-success`, target, characters);
-    } else {
-      // prettier-ignore
-      Cfx.TriggerClientEvent(`${Cfx.Server.GetCurrentResourceName()}:account-login-error`, target, 'Authentication failed - unknown error occured.');
-    }
-  }
-
   @EventListener({ eventName: 'character-creation:character-selected' })
   public async onCharacterSelected(character: any, _source?: number): Promise<void> {
     const playerId: number = _source ?? Cfx.source;
@@ -206,22 +104,9 @@ export class Server {
       const player: Player = await this._session.load(playerId, character.id);
 
       if (player) {
+        // TODO: Instead of doing this here, 'armoury-overlay' should listen for when authentication is done, and modify the overlays there
         this.setBasicOverlaysFor(playerId);
         global.exports['armoury'].unblockPlayerTime(playerId);
-
-        // for (var property in stats) {
-        //   if (stats.hasOwnProperty(property)) {
-        //     this.setPlayerInfo(playerId, property, stats[property]);
-        //     if (this.cachedPlayerProperties.indexOf(property) === -1) {
-        //       this.cachedPlayerProperties.push(property);
-        //     }
-        //   }
-        // }
-        //
-        // this.authenticatedPlayers.set(playerId, {
-        //   ...(<PlayerMonitored>(<PlayerBase>stats)),
-        //   lastHoursPlayedCheck: new Date(),
-        // });
 
         this.spawnPlayer(playerId, !(<number[]>this._session.getPlayerInfo(playerId, 'lastLocation'))?.length);
 
@@ -310,17 +195,6 @@ export class Server {
     Cfx.TriggerClientEvent('authentication:spawn-player', target, position);
   }
 
-  // @EventListener()
-  // public onResourceStop(resourceName: string): void {
-  //   if (resourceName === Cfx.Server.GetCurrentResourceName()) {
-  //     Array.from(this.authenticatedPlayers.keys()).forEach((player: number) => {
-  //       this.savePlayerCriticalStats(player);
-  //     });
-  //
-  //     this.authenticatedPlayers.clear();
-  //   }
-  // }
-
   private getHashPasswordWithSalt(password: string, email: string): string {
     return email.slice(0, 3) + password + email.slice(3, 6);
   }
@@ -329,12 +203,19 @@ export class Server {
     global.exports['armoury-overlay'].updateItem(playerId, {
       id: 'cash',
       icon: 'attach_money',
-      value: '$0',
+      value:
+        '$' +
+        (Math.abs(<number>this._session.getPlayerCash(playerId)) < 999999
+          ? StringFormatter.numberWithCommas(<number>this._session.getPlayerCash(playerId))
+          : StringFormatter.thousands(<number>this._session.getPlayerCash(playerId), 2)),
     });
     global.exports['armoury-overlay'].updateItem(playerId, {
       id: 'id',
       icon: 'person',
-      value: 'ID 0',
+      value: `ID ${this._session
+        .getPlayerInfo(playerId, 'id')
+        .toString()
+        .padStart(Math.max(6, this._session.getPlayerInfo(playerId, 'id').toString().length), '0')}`,
     });
     global.exports['armoury-overlay'].updateItem(playerId, {
       id: 'level',
